@@ -9,6 +9,7 @@
 */
 
 #include "SD-CLI.h"
+#include <stdbool.h>
 
 int SD_CLI(struct cTable cmdTable[], char *prompt)
 {
@@ -23,8 +24,9 @@ int (*selectedFunction)(int, char[CLI_MAX_ARGS][CLI_ARGLEN]);
         printf("\n%s ", prompt);                            //Print the prompt (and a space)
         if (getline(cmdLine, CLI_CL_LENGTH)!=0) {           //Get a line from the terminal, 0 if nothing entered
             argc=getargs(cmdLine,argv);                     //Split the command line into args (unix-style)
-            selectedFunction=lookupCmd(argv[0]);            //First arguvent value is the command, return pointer to function
-            resultCode=(*selectedFunction)(argc, argv);     //Execute the selected function and pass arguments
+printf("\nFound %d arguments.",argc);
+//            selectedFunction=lookupCmd(argv[0]);            //First arguvent value is the command, return pointer to function
+//            resultCode=(*selectedFunction)(argc, argv);     //Execute the selected function and pass arguments
         }
     }
     return(resultCode);
@@ -36,50 +38,62 @@ int (*selectedFunction)(int, char[CLI_MAX_ARGS][CLI_ARGLEN]);
     Arguments are max CLI_ARGLEN long (30 chars incl terminating 0)
     Max 10 args (including command) will be recognised
 */
-int getargs(char cmdLine[], char argv[CLI_MAX_ARGS][CLI_ARGLEN])
+int getargs(char * cmdLine, char argv[CLI_MAX_ARGS][CLI_ARGLEN])
 {
-int nrArgs;
 int cliIndex, currentArg;
 int cmdLineLength;
 bool cmdLineReady;
 
     currentArg=0;
-    argv[0]="";
+    strcpy(argv[0],"");
     cmdLineLength=strlen(cmdLine);
-    cmdLineReady=false;
-    while (!cmdLineReady) {
-        while (!whitespace(cmdLine[cliIndex]) && cliIndex<CLI_CL_LENGTH) {  //as long as no whitespace encountered
-            strncat(argv[currentArg], &cmdLine[cliIndex], 1);               //copy until whitespace or end of cmd line
-            cliIndex++;                                                     //next character
-        } 
-printf("\nArg %d = \"%s\"",currentArg,argv[currentArg]);                                                                  //----- whitespace encountered.
+    cmdLineReady=0;
+    cliIndex=0;
+    while (cmdLineReady==false) {
+printf("\nNew argument: ");
+        while ((!whiteSpace(cmdLine[cliIndex])) && (cliIndex<cmdLineLength)) {  //as long as no whitespace encountered
+printf("%c", cmdLine[cliIndex]) ;       
+            strnccat(argv[currentArg], cmdLine[cliIndex++]);                //copy until whitespace or end of cmd line
+        }                                                    //----- whitespace encountered.
         currentArg++;                                                       //Next argument
-        while (whitespace(cmdLine[cliIndex]) && cliIndex<CLI_CL_LENGTH){    //as long as we encounter whitespace (or end of cmdline)
+        while (whiteSpace(cmdLine[cliIndex]) && cliIndex<CLI_CL_LENGTH){    //as long as we encounter whitespace (or end of cmdline)
             cliIndex++;
         }
+        if (cliIndex==cmdLineLength) cmdLineReady=true;
     } //While not ready, do another argv...
-    return(nrArgs);
+    return(currentArg);
 }
 
 /**
     Determine if a char is whitespace
     Return true or false
 */
-bool whitespace(char aCharacter)
+bool whiteSpace(char aCharacter)
 {
     switch(aCharacter) {
     case ' ':
         return(true);
-        break;
     case ',':
         return(true);
-        break;
     case ';':
         return(true);
-        break;
-    Default:
+    default:
         return(false);
     }
+}
+
+/**
+    Add a char to the end of string s
+    Needed because CMOC does not support strncat
+*/
+char * strnccat(char* s, char newchar)
+{
+int curlen;                 //Length of string before concat
+
+    curlen=strlen(s);       //Determine current length
+    s[curlen]=newchar;      //Add new character
+    s[curlen+1]=0;          //Terminate string
+    return(s);
 }
 
 /**

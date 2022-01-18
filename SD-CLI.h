@@ -34,8 +34,9 @@ struct cTable SDMonCmds[] = {
 //Function prototypes
 int SD_CLI(struct cTable cmdTable[], char *prompt);
 int getargs(char cmdLine[], char argv[CLI_MAX_ARGS][CLI_ARGLEN]);
-bool whitespace(char aCharacter);
+bool whiteSpace(char aCharacter);
 void * lookupCmd(char token[CLI_ARGLEN]);
+char * strnccat(char* s, char newchar);
 
 //Command execution functions
 int dir(int argc, char argv[CLI_MAX_ARGS][CLI_ARGLEN]);

@@ -8,7 +8,7 @@
 
 #include <cmoc.h>
 #include <6309sbc.h>
-#include <stdbool.h>
+#include "stdbool.h"
 #include "TOM6309SDcard.h"
 //#include "../../Bootstrap/JFS/jfs.h"
 #include "jfs.h"                                //Changed for use under GIT
@@ -83,7 +83,7 @@ unsigned long StartBlock;
 			} //if (SDStat==SDRDY)
 			break;
 		case 'C':
-		    SD_CLI(SDMonCmds, '>');
+		    SD_CLI(SDMonCmds, ">");
 		    break;
 		case 'F':
 			printf("\nFormat SD");
