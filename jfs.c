@@ -5,8 +5,8 @@
 	V0.0 (c) 2021 Jacob Beeksma.
 */
 
-#include "../../Bootstrap/JFS/jfs.h"
-#include "../../SD-card/SDMon/TOM6309SDcard.h"
+#include "jfs.h"
+#include "TOM6309SDcard.h"
 #include <stdbool.h>
 
 /**
@@ -102,7 +102,7 @@ void printerr(const char * errormessage)
 int fillblock(long BlockNr, unsigned char Value)
 {
 int SDStat;
-    fill_buffer(BlockBuffer,Value);
+    fill_buffer(Value);
     SDStat=writeblock(BlockNr);
     return SDStat;
 }

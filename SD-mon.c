@@ -10,17 +10,22 @@
 #include <6309sbc.h>
 #include <stdbool.h>
 #include "TOM6309SDcard.h"
-#include "../../Bootstrap/JFS/jfs.h"
+//#include "../../Bootstrap/JFS/jfs.h"
+#include "jfs.h"                                //Changed for use under GIT
+#include "SD-CLI.h"
 
 #define INITTRIES 999
 //#define ESC 27              //ASCII code for ESC char
 
-//global variables////////////////////////////////////////////////////////////////////////
+//Function Proto's for SD-Mon.c
 unsigned char upcase(unsigned char ulc);
-void BlockDisplay(long BlockNr, unsigned char Buffer[]);
-void fill_buffer(unsigned char buffer[], unsigned char value);
+long GetBlockNr();
+void PrepCS(unsigned char CmdStructure[],unsigned char Cmd, long BlockNr);
+int readDisplayBlocks(int argc, char argv[10][30]);
+void BlockDisplay(long BlockNr);
+void fill_buffer(unsigned char value);
 
-
+//global variables////////////////////////////////////////////////////////////////////////
 static unsigned char BlockBuffer[512];
 unsigned char *pBootBlock = 0;
 //end global variables////////////////////////////////////////////////////////////////////
@@ -49,9 +54,9 @@ unsigned long StartBlock;
 	while (Command!='Q'){
 		printf("\n\nMenu :\n====\n");
 		printf("\n B - Write @0000 to boot block");
+		printf("\n C - Start CLI");
 		printf("\n F - Format SD card with JDOS FS");
 		printf("\n I - Init");
-		printf("\n M - Read 100 blocks...");
 		printf("\n R - Read block");
 		printf("\n S - Status / info");
 		printf("\n W - Write block");
@@ -77,6 +82,9 @@ unsigned long StartBlock;
 				} //switch (SDStat...
 			} //if (SDStat==SDRDY)
 			break;
+		case 'C':
+		    SD_CLI(SDMonCmds, '>');
+		    break;
 		case 'F':
 			printf("\nFormat SD");
 			printf("\nAre you sure? : ");
@@ -109,44 +117,9 @@ unsigned long StartBlock;
 				} //switch SDStat
 			} //if (CardInfo.status...
 			break; //case 'I'...
-		case 'M': 
-			printf("\nRead 100 blocks.");
-			StartBlock=GetBlockNr();
-			for (BlockNr=StartBlock;BlockNr<StartBlock+100;BlockNr++){
-				PrepCS(CmdStructure,SDCMDReadBlock,BlockNr);
-				SDStat=SDReadBlock(CmdStructure,BlockBuffer);
-				if (SDStat==SDRDY){
-					BlockDisplay(BlockNr, BlockBuffer);
-				} else {
-					switch (SDStat){
-					case SDERR:
-						printf("\n SD card not present or SD comm error.\n");
-						break;
-					case SDNRDY:
-						printf("\n SD card not ready.\n");
-					} //switch (SDStat...
-				} //if (SDStat==SDRDY)
-				if (checkkey()) BlockNr=StartBlock+100; //abort if key pressed
-			} //for (BlockNr...
-			break;
 		case 'R':
 			BlockNr=GetBlockNr();
-			PrepCS(CmdStructure,SDCMDReadBlock,BlockNr);
-			fill_buffer(BlockBuffer,0);
-			if (BlockNr!=-1){
-				SDStat=SDReadBlock(CmdStructure,BlockBuffer);
-				if (SDStat==SDRDY){
-					BlockDisplay(BlockNr, BlockBuffer);
-				} else {
-					switch (SDStat){
-					case SDERR:
-						printf("\n SD card not present or SD comm error.\n");
-						break;
-					case SDNRDY:
-						printf("\n SD card not ready.\n");
-					} //switch (SDStat...
-				} //if (SDStat==SDRDY)
-			} //if (BlockNr...
+			readDisplayBlocks(BlockNr,0);
 			break;
 		case 'S':
 			printf("\n\nCard info:");
@@ -278,36 +251,74 @@ void PrepCS(unsigned char CmdStructure[],unsigned char Cmd, long BlockNr)
 #endif
 }
 
-void BlockDisplay(long BlockNr, unsigned char Buffer[])
+/**
+    readDisplayBlocks
+    Will read block firstblock throug lastblock and display the contents in hex format
+    If lastblock == 0, only firstblock will be displayed.
+*/
+    
+int readDisplayBlocks(int argc, char argv[10][30])
+{
+unsigned char CmdStructure[6];
+long blockNr,firstblock,lastblock;
+int SDStat;
+int CLIStat;
+
+    firstblock=(long)atol(argv[1]);                                     //Interpret argv[1] as first block
+    lastblock=(long)atol(argv[2]);                                      //Interpret argv[2] as last block
+    for (blockNr=firstblock; blockNr<=lastblock; blockNr++) {           //Loop through, if lastblock==0 then only 1 block is displayed
+        PrepCS(CmdStructure,SDCMDReadBlock,blockNr);                    //Prepare the command structure
+        SDStat=SDReadBlock(CmdStructure,BlockBuffer);                   //Call low-level read routine, passes BlockBuffer to ASM routine
+        if (SDStat==SDRDY){                                             //Check the return code
+            BlockDisplay(blockNr);                                      //If OK, display the block
+            CLIStat=E_CLI_OK;
+        } else {
+            switch (SDStat){                                            //Print error message as appropriate
+            case SDERR:
+                CLIStat=E_CLI_SDERR;
+                printf("\n SD card not present or SD comm error.\n");
+                break;
+            case SDNRDY:
+                printf("\n SD card not ready.\n");
+            } //switch (SDStat...
+            return(CLIStat);
+        } //if (SDStat==SDRDY)
+    }  
+}
+
+/**
+    BlockDisplay dumps the contents of a 512 byte disk block in a 32x16 matrix in hex and ASCII format to the terminal
+*/
+void BlockDisplay(long BlockNr)                                         //Uses the global BlockBuffer[]
 {
 int Lines, Cols;
 unsigned char Cell;
 
 	printf("\n");
-	for (Lines=0;Lines<32;Lines++){
+	for (Lines=0;Lines<32;Lines++){                                     //Print 32 lines of 16 columns
 		//if (Lines%8==0) printf("\n");
 		printf("\n0x%08lx %04x\t",BlockNr,16*Lines);
 		for (Cols=0;Cols<16;Cols++){
-			if ((Cols%8)==0) printf(" ");
-			printf("%02x ",Buffer[16*Lines+Cols]);
+			if ((Cols%8)==0) printf(" ");                               //Print gutter after 8 cols
+			printf("%02x ",BlockBuffer[16*Lines+Cols]);                 //Print hex value
 		}
 		for (Cols=0;Cols<16;Cols++){
-			if ((Cols%8)==0) printf(" ");
-			Cell=Buffer[16*Lines+Cols];
-			if (Cell>127) Cell='.';
-			if (Cell<0x20) Cell='.';
-			printf("%c", Cell);
+			if ((Cols%8)==0) printf(" ");                               //Print gutter after 8 cols
+			Cell=BlockBuffer[16*Lines+Cols];
+			//if (Cell>127) Cell='.';                                     //Over ASCII 127 chars are undefined
+			if (Cell<0x20) Cell='.';                                    //Replace unprintable chars with dots
+			printf("%c", Cell);                                         //Print char value
 		}
 	}	
 }
 
-void fill_buffer(unsigned char buffer[], unsigned char value)
+void fill_buffer(unsigned char value)                                   //Uses the global BlockBuffer
 {
 int count;
 
 	for(count=0;count<512;count++)
 	{
-		buffer[count]=value;
+		BlockBuffer[count]=value;
 	}
 }
 
@@ -323,6 +334,7 @@ INISTK	IMPORT
 } 
 
 #include "TOM6309SDcard.c"
-#include "../../Bootstrap/JFS/jfs.c"
+#include "jfs.c"
+#include "SD-CLI.c"
 
 //#include <../TOM6309.c>
