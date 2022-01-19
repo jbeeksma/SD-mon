@@ -18,28 +18,32 @@
 
 #define E_CLI_QUIT      199                     //CLI termination requested
 
+//typedef for CLI executable functions
+typedef int (* CLI_FUNC)(int, char[CLI_MAX_ARGS][CLI_ARGLEN]);
+
 //Structure of a command table: Command Name and Associated Function
 struct cTable {
     char command[10];                           //The command text
-    int (* assoc_function)(int, char[CLI_MAX_ARGS][CLI_ARGLEN]);       //pointer to associated function
+    CLI_FUNC assoc_function;                    //pointer to associated function
 };
 
 //Definition of table with SDMon commands
-struct cTable SDMonCmds[] = {
-    { "read",   &readDisplayBlocks  },
-    { "dir",    &dir                },
-    { "exit",   &quit               }
+static struct cTable SDMonCmds[] = {
+    { "read",   readDisplayBlocks  },
+    { "dir",    dir                },
+    { "exit",   quitCLI            },
+    { "-end-",  (void *) 0         }
 };
 
 //Function prototypes
 int SD_CLI(struct cTable cmdTable[], char *prompt);
 int getargs(char cmdLine[], char argv[CLI_MAX_ARGS][CLI_ARGLEN]);
 bool whiteSpace(char aCharacter);
-void * lookupCmd(char token[CLI_ARGLEN]);
+CLI_FUNC lookupCmd(struct cTable * cmdTable, char * token);
 char * strnccat(char* s, char newchar);
 
 //Command execution functions
 int dir(int argc, char argv[CLI_MAX_ARGS][CLI_ARGLEN]);
-int quit(int argc, char argv[CLI_MAX_ARGS][CLI_ARGLEN]);
+int quitCLI(int argc, char argv[CLI_MAX_ARGS][CLI_ARGLEN]);
 
 #endif //ifndef _H_SDCLI

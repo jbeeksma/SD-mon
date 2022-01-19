@@ -17,16 +17,19 @@ char cmdLine[80];
 int argc;
 char argv[CLI_MAX_ARGS][CLI_MAX_ARGS];
 int resultCode;
-int (*selectedFunction)(int, char[CLI_MAX_ARGS][CLI_ARGLEN]);
+CLI_FUNC selectedFunction;
 
     resultCode=E_CLI_OK;
     while (resultCode != E_CLI_QUIT) {
-        printf("\n%s ", prompt);                            //Print the prompt (and a space)
-        if (getline(cmdLine, CLI_CL_LENGTH)!=0) {           //Get a line from the terminal, 0 if nothing entered
-            argc=getargs(cmdLine,argv);                     //Split the command line into args (unix-style)
-printf("\nFound %d arguments.",argc);
-//            selectedFunction=lookupCmd(argv[0]);            //First arguvent value is the command, return pointer to function
-//            resultCode=(*selectedFunction)(argc, argv);     //Execute the selected function and pass arguments
+        printf("\n%s ", prompt);                                    //Print the prompt (and a space)
+        if (getline(cmdLine, CLI_CL_LENGTH)!=0) {                   //Get a line from the terminal, 0 if nothing entered
+            argc=getargs(cmdLine,argv);                             //Split the command line into args (unix-style)
+            if (selectedFunction=lookupCmd(cmdTable, argv[0])){     //if non-0, got a pointer to function
+printf("\n%s Selected function at 0x%04x", __func__, selectedFunction);
+            resultCode=(*selectedFunction)(argc, argv);             //Execute the selected function and pass arguments
+            } else {                                                //If 0, we did not find a function
+                printf("\a\n Unknown command");
+            }
         }
     }
     return(resultCode);
@@ -100,9 +103,19 @@ int curlen;                 //Length of string before concat
     Looks up a command in a command table
     Returns a pointer to the associated function to carry out the command
 */
-void * lookupCmd(char token[CLI_ARGLEN])
+CLI_FUNC lookupCmd(struct cTable * cmdTable, char * token)
 {
-    //TODO: Implement lookup function
+int cmdIndex;
+    
+    for (cmdIndex=0; cmdTable[cmdIndex].assoc_function != (CLI_FUNC)0; cmdIndex++) {
+printf("\n%s %s",__func__, cmdTable[cmdIndex].command);
+printf("\n%s strcmp returns %x", __func__, strcmp(token, cmdTable[cmdIndex].command));
+        if (strcmp(token, cmdTable[cmdIndex].command)==0)
+        {
+printf("\n%s Recognised %s as %s, associated function at 0x%04x",__func__, token, cmdTable[cmdIndex].command, cmdTable[cmdIndex].assoc_function);
+            return (cmdTable[cmdIndex].assoc_function);
+        }
+    } 
     return(0);
 }
 
@@ -112,6 +125,7 @@ void * lookupCmd(char token[CLI_ARGLEN])
 */
 int dir(int argc, char argv[CLI_MAX_ARGS][CLI_MAX_ARGS])
 {
+
     //TODO: Implement dir command
     return(E_CLI_OK);                                              
 }
@@ -119,7 +133,7 @@ int dir(int argc, char argv[CLI_MAX_ARGS][CLI_MAX_ARGS])
 /**
     Implementation of the 'quit' command
 */
-int quit(int argc, char argv[CLI_MAX_ARGS][CLI_MAX_ARGS])
+int quitCLI(int argc, char argv[CLI_MAX_ARGS][CLI_MAX_ARGS])
 {
     //TODO: Implement dir command
     return(E_CLI_QUIT);                                     //Signal main loop that we want to quit                                          
