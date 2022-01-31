@@ -1,8 +1,10 @@
-/*
-	JFS.c
+/*!
+	@file JFS.c	
+	@brief Source code for Jacobs File System for 6309 SBC SD card.
+	@version V0.0 (c) 2021 Jacob Beeksma.
 	
-	Source code for Jacobs File System for 6309 SBC SD card.
-	V0.0 (c) 2021 Jacob Beeksma.
+	This module contains mainly the low-level disk interface routines
+	such as formatting, reading and writing blocks etc.
 */
 
 #include "jfs.h"
@@ -23,34 +25,35 @@ long JDOS_erase(long maxblocks)
 long blocknr, blockcnt;
 long newdir,newpart;
 unsigned char blocktype=T_EMPTYBLK;
+int numParts;
 
 	if (!erase_test_block(A_BOOTBLOCK)) {		//erase and test boot block
 		printerr("Boot block can not be initialized.\nAborted.");
 	} else {
-        printf("\nBootblock erased");
+printf("\nBootblock erased");
 		if (!erase_test_block(A_EMPTYCHN)) {	//erase and test empty chain header
 		printerr("Empty chain can not be initialized.\nAborted.");
 	    } else {
-	        printf("\nEmpty chain header block erased");
+printf("\nEmpty chain header block erased");
 //	        init_ec_header(); --> only after first empty block is added to the chain. all 0's is good for now.
 	    	if (!erase_test_block(A_PARTMAP)) {	//erase and test partition map block
 		        printerr("Partion Map can not be initialized.\nAborted.");
         	} else {
-	            printf("\nPartmap erased");
+printf("\nPartmap erased");
 	            if (!erase_test_block(A_BADBLKHDR)) {	//erase and test bad block header
 		            printerr("Bad block header can not be initialized.\nAborted.");
         	    } else {
         	        init_badblk_hdr();
         	        blockcnt=0;
-        	        printf("\n");
+printf("\n");
 //FIXME: formatting whole device takes too long, cut down to 1024 blocks for testing
 //      	        for (blocknr=4;blocknr<=maxblocks;blocknr++) {  
-        	        for (blocknr=4;blocknr<=10;blocknr++) {       //10 = test value saves time during dev ;-)
+        	        for (blocknr=4;blocknr<=30;blocknr++) {       //30 = test value saves time during dev ;-)
                         if (!erase_test_block(blocknr)) {
-                            printf("\nBlock %ld bad.\n",blocknr);
+printf("\nBlock %ld bad.\n",blocknr);
                             add_bad_block(blocknr);
                         } else {
-                            printf("\r%08lx",blocknr);
+printf("\r%08lx",blocknr);
                             blockcnt++;
                             add_to_ec(blocknr);
                         } // !erase_test         	        
@@ -60,9 +63,13 @@ unsigned char blocktype=T_EMPTYBLK;
 printf("\nPartmap initialized.");
         	        newdir=createDir("/",NOATTRIB, NOPARENT);
 printf("\nCreated root dir.");
-        	        newpart=createPartition('c',"Root",NOTBOOTABLE,newdir);         //drive letter c:, not bootable yet, add root dir
+        	        newpart=createPartition('c',"root",NOTBOOTABLE,newdir);         //drive letter c:, not bootable yet, add root dir
 printf("\nPartion header created, root dir added.");
-        	        addpart(newpart);               //Add partititon to partition table
+        	        if ((numParts=addpart(newpart))==0){                            //Add partititon to partition table
+        	            printf("\nCould not create partition header");
+        	        } else {
+                        printf("\n%s Nr of partitions now: %d ", __func__, numParts);
+                    }
         	    }
             }
         }
@@ -164,7 +171,7 @@ void init_partmap()
 union pm_transfer pm_t;
 
     pm_t.buffer=&BlockBuffer[0];            //Link pm_t.buffer to physical address of BlockBuffer
-    pm_t.pmdata->blocktype=T_PARTHDR;       //Define block as Bad Block Header
+    pm_t.pmdata->blocktype=T_PARTMAP;       //Define block as Bad Block Header
     pm_t.pmdata->no_parts=0;                //No partitions yet
     pm_t.pmdata->parthdr[0]=0;              //Indicates no (more) partitions
     writeblock(A_PARTMAP);                  //Write the data to appropriate block
@@ -407,33 +414,62 @@ long createPartition(char driveletter, char* partname, long bootfile, long rootd
 union ph_transfer ph_t;
 long ph_address;
 
-    if ((ph_address=getblock())!=0){        //non-zero means a block has been made available, 0 means no block
+    if ((ph_address=getblock())!=0){            //non-zero means a block has been made available, 0 means no block
         ph_t.buffer=&BlockBuffer[0];            //Link ph_t buffer to physical address of BlockBuffer
         ph_t.phdata->blocktype=T_PARTHDR;       //Block type is T_PARTHDR of 0xA0
         ph_t.phdata->driveletter=driveletter;   //assign the give drive letter
         strcpy(ph_t.phdata->volname, partname); //copy partition name into data structure
         ph_t.phdata->bootfile=bootfile;         //copy block address of boot file (or 0 if none)
         ph_t.phdata->rootdir=rootdir;           //copy block address of root dir (must be created in advance)
-        writeblock(ph_address);             //Write partition header to disk
+        ph_t.phdata->curdir=rootdir;            //Initially set current dir to root dir
+        writeblock(ph_address);                 //Write partition header to disk
 printf("\nCreated partition %s with drive letter %c at block 0x%08lx", partname, driveletter, ph_address);
-        return (ph_address);                //Return the address of the new partition header
-    } else {                                //no block available
+        return (ph_address);                    //Return the address of the new partition header
+    } else {                                    //no block available
 printf("\nFailed to allocate block for partition header.");
         return (0);
     }
 }
 
+/**
+    Add block nr newpart as new partition in partition header
+*/
 int addpart(long newpart)
 {
 union pm_transfer pm_t;                     
 
-    readblock(A_PARTMAP);                   //Read the partition map raw data
-    pm_t.buffer=&BlockBuffer[0];            //Map the partmap structure onto the data
-    if (pm_t.pmdata->no_parts>=MAXPARTS) {  //Max number of partitions reached
-        jfcstatus=E_JFC_PARTMAPFULL         //Message that partition map is full
-        return (0);                         //Return error code
-    } else {                                //Ready to add it
+    readblock(A_PARTMAP);                                       //Read the partition map raw data
+    pm_t.buffer=&BlockBuffer[0];                                //Map the partmap structure onto the data
+    if (pm_t.pmdata->no_parts>=MAXPARTS) {                      //Max number of partitions reached
+        jfcstatus=E_JFC_PARTMAPFULL;                            //Message that partition map is full
+        return (0);                                             //Return 0 plus error code
+    } else {                                                    //Ready to add it
         pm_t.pmdata->parthdr[pm_t.pmdata->no_parts]=newpart;    //Add the address of the new partition header
-        pm_t.pmdata->no_parts++;            //Increase the number of defined partitions          
+        pm_t.pmdata->no_parts++;                                //Increase the number of defined partitions 
+        pm_t.pmdata->parthdr[pm_t.pmdata->no_parts]=0;          //Write a 0 in the next pointer to signal end of list
+        writeblock(A_PARTMAP);                                  //Write updated block back to disk
+        return (pm_t.pmdata->no_parts);                         //Return nr of partition existing       
     }
 }
+
+/**
+    Get block address for partition partNo
+*/
+long getPart(int partNo)
+{
+union pm_transfer pm_t;
+long pm_address;
+
+    if (readblock(A_PARTMAP)==0){                  //non-zero means the partmap has been successfully read
+        pm_t.buffer=&BlockBuffer[0];                            //Link ph_t buffer to physical address of BlockBuffer
+        if (partNo <= pm_t.pmdata->no_parts) {
+            return(pm_t.pmdata->parthdr[partNo]);               //Return the block address of partition [partNo]
+        } else {
+            jfcstatus=E_PART_NONEX;                             //Signal non-existing partition
+            return(0);                                          //Return with error
+        }
+    } else {
+        jfcstatus=E_PART_UNREAD;                                //Signal partmap unreadable
+        return(0);                                              //Return with error
+    }
+}                                      

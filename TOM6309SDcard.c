@@ -69,31 +69,31 @@ int version;
 
 	asm
 	{
-	PSHS	X,D		//save index register and A,B
+	PSHS	X,D		            //save index register and A,B
 	PSHSW
 	LDX	ResultBuffer
-	LDF	#VERBOSE		//type of status to console (depends on DEBUG)
-	LDD	#SDRDY		//positive result code
-	STD	InitStat		//Initially set status to SDRDY
-	JSR	[SD_Initialise_ptr]	//indirect via jump table
-	BVC	InitDone		//If V cleared --> success
+	LDF	#VERBOSE		        //type of status to console (depends on DEBUG)
+	LDD	#SDRDY		            //positive result code
+	STD	InitStat		        //Initially set status to SDRDY
+	JSR	[SD_Initialise_ptr]	    //indirect via jump table
+	BVC	InitDone		        //If V cleared --> success
 // Error handling
-	LDD	#SDERR		//indicate failure
-	STD	InitStat		//alas, indicate failure InitSuccess=FALSE
+	LDD	#SDERR		            //indicate failure
+	STD	InitStat		        //alas, indicate failure InitSuccess=FALSE
 InitDone	
 // Check V2
-	CLR	version		//Assume card is V1 (false)
+	CLR	version		            //Assume card is V1 (false)
 	PSHS	U
-	LDU	SDCMD8		//SDCMD8 command sequence
-	JSR	[SD_SendCmd_ptr]	//Execute CMD8
+	LDU	SDCMD8		            //SDCMD8 command sequence
+	JSR	[SD_SendCmd_ptr]	    //Execute CMD8
 	PULS 	U
-	OIM	IO_SDCS,IOPORT	//Negate CS
-	BITA	#R1ILLEGCMD	//R1 bit 2 = Illegal Command
-	BNE	@ISV2		//Is V2, set version to true
-	INC	version		//set version to 1 (true)
+	OIM	IO_SDCS,IOPORT	        //Negate CS
+	BITA	#R1ILLEGCMD	        //R1 bit 2 = Illegal Command
+	BNE	@ISV2		            //Is V2, set version to true
+	INC	version		            //set version to 1 (true)
 @ISV2
 	PULSW
-	PULS	X,D		//retrieve index register and A,B
+	PULS	X,D		            //retrieve index register and A,B
 	} 
 	ThisCard.status=InitStat;
 #ifdef DEBIG
@@ -114,25 +114,25 @@ int ReadStat;
 
 	asm
 	{
-	PSHS	D,U,X,Y		//save D,X,Y register
-	PSHSW			// and also W (E,F) register
-	LDD	#SDRDY		//positive result code
-	STD	ReadStat		//assume read will work
-	LDX	CB		//6 bit command buffer 0,x .. 3,x = block #
-	LDY	BlockBuffer	//buffer to receive data
+	PSHS	D,U,X,Y		    //save D,X,Y register
+	PSHSW			        // and also W (E,F) register
+	LDD	#SDRDY		        //positive result code
+	STD	ReadStat		    //assume read will work
+	LDX	CB		            //6 bit command buffer 0,x .. 3,x = block #
+	LDY	BlockBuffer	        //buffer to receive data
 	JSR	[SD_ReadBlock_ptr]	//indirect JSR via jump table
-	BVC	ReadDone		//all good skip error business
+	BVC	ReadDone		    //all good skip error business
 // Error handling
-	CMPA	#0		//check A register
-	BEQ	NoToken		//if A=0: No READ token
+	CMPA	#0		        //check A register
+	BEQ	NoToken		        //if A=0: No READ token
 CMD17done	LDD	#SDREADFAIL	//if a<>0: Command 51 failed
-	STD	ReadStat		//save error code in status	
-	BRA	ReadDone		//exit
+	STD	ReadStat		    //save error code in status	
+	BRA	ReadDone		    //exit
 NoToken	LDD	#SDNOTOK		//no token received
-	STD	ReadStat		//save error code in status
+	STD	ReadStat		    //save error code in status
 ReadDone	
-	PULSW			//retrieve registers
-	PULS	D,U,X,Y		//retrieve registers
+	PULSW			        //retrieve registers
+	PULS	D,U,X,Y		    //retrieve registers
 	}
 	return(ReadStat);
 }

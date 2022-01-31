@@ -1,13 +1,26 @@
 /*
-	JFS.h 
+	@file JFS.h 	
+	@brief Header file for Jacobs File System for 6309 SBC SD card
+	@version 0.0 
+	@copyright (c) 2021 Jacob Beeksma.
 	
-	Header file for Jacobs File System for 6309 SBC SD card
-	V0.0 (c) 2021 Jacob Beeksma.
+	Structure definitions and unions to handle structured data in unstructured disk blocks
+	Constant definitions for file system structures
+	JFC status and error codes
 */
 
 #ifndef _H_JFS
 #define _H_JFS
 #include <stdbool.h>
+
+/**
+    Reserved block at start of disk:
+
+    Block 0: Boot block - contains bootstrap loader
+    Block 1: Empty Chain header
+    Block 2: Partition Map
+    Block 3: Bad block header
+*/
 
 /* Block type definitions */
 
@@ -27,7 +40,8 @@
 			//	1 byte:		Assigned drive letter
 			//	32 bytes:	Volume name
 			//	4 bytes:	Address of boot file (0 if not bootable)
-			//  4 bytes:    Address of root dir header		
+			//  4 bytes:    Address of root dir header	
+			//  4 bytes:    Address of current dir on this partition	
 #define T_BADBLKHDR	0xB0	//Bad blocks header
 			//	1 byte: 	0xB0 = Bad block list header
 			//	4 bytes:	#bad blocks in list
@@ -97,6 +111,20 @@
 
 // Data structures
 
+//Date and Time
+
+struct d_type {                                         /** Date format */
+    unsigned char day;                                  //BCD day of the month [01..31]
+    unsigned char month;                                //BCD month [01..12]
+    unsigned char year;                                 //BCD year [00..99] in 21st century
+};
+
+struct t_type {                                         /** Time format */
+    unsigned char hour;                                 //BCD hours [00..23]
+    unsigned char min;                                  //BCD minutes [00..59]
+    unsigned char sec;                                  //BCD seconds
+};
+
 /**
     Data structure for partition map
 */
@@ -154,6 +182,7 @@ struct s_parth {                                /** Partition header block struc
     char            volname[32];                //Volume name string max 32 chars
     long            bootfile;                   //Adress of fileheader block for boot file, or 0 if none
     long            rootdir;                    //Address of root directory header block
+    long            curdir;                     //Address of current directory header block
 };
 
 /**
@@ -165,8 +194,8 @@ struct s_dirh {                                 /** Directory header block struc
     char            dirname[32];                //Directory name
     long            parentdir;                  //Address of parent dir or 0 if none
     long            dirext;                     //Address of extension block or 0 if none  
-    char            moddate[6];                 //Date of last change
-    char            modtime[6];                 //Time of last change
+    struct d_type   moddate;                    //Date of last change
+    struct t_type   modtime;                    //Time of last change
     long            file[DHMAXFILES];           //The first 116 files in dir (0 after last used)
 };
 
@@ -180,52 +209,83 @@ struct s_dirx {                                 /** Directory extension block st
     long            file[DXMAXFILES];           //Additional 126 files in dir (0 after last used)
 };
 
+/**
+    Data structure for file header
+*/
+struct s_fileh {
+    unsigned char blocktype;                    /** File header block structure */
+    unsigned char attributes;                   //File attributes
+    char          filename[32];                 //Filename
+    long          nextfblock;                   //Address of file extension block or 0 if none  
+};
+
+/**
+    Data structure for file extension block
+*/
+struct s_filex {
+    unsigned char blocktype;                    /** File header block structure*/
+    long          prevblock;                    //Previous block in this file
+    long          nextblock;                    //Next extension block in file or 0 if none
+};
+
 /** union used to map empty chain header structure onto raw disk block */
 union ech_transfer {
-    struct s_emptyhdr* ecdata;
-    unsigned char* buffer;
+    struct s_emptyhdr   * ecdata;
+    unsigned char       * buffer;
 };
 
 /*Union used to map empty block data structure onto raw disk block*/
 union eb_transfer {
-    struct s_eblock* ebdata;
-    unsigned char* buffer;
+    struct s_eblock     * ebdata;
+    unsigned char       * buffer;
 };
 		
 /**Union used to map partition map block data structure onto raw disk block*/
 union pm_transfer {
-    struct s_partmap* pmdata;
-    unsigned char* buffer;
+    struct s_partmap    * pmdata;
+    unsigned char       * buffer;
 };
 
 /** Union used to map bad block header data structure onto raw disk block*/
 union bbh_transfer {
-    struct s_bblockh *  bbhdata;
-    unsigned char * buffer;
+    struct s_bblockh    * bbhdata;
+    unsigned char       * buffer;
 };
 					
 /** Union used to map bad block extension block data structure onto raw disk block*/
 union bbx_transfer {
-    struct s_bblockx *  bbxdata;
-    unsigned char * buffer;
+    struct s_bblockx    * bxdata;
+    unsigned char       * buffer;
 };
 
 /**Union used to map partition header structure onto raw disk block*/
 union ph_transfer {
-    struct s_parth * phdata;
-    unsigned char * buffer;
+    struct s_parth      * phdata;
+    unsigned char       * buffer;
 };
 
 /**union used to map directory header structure onto raw disk block*/
 union dh_transfer {
-    struct s_dirh * dhdata;
-    unsigned char * buffer;
+    struct s_dirh       * dhdata;
+    unsigned char       * buffer;
 };
 					
 /**Union used to map directory extension structure onto raw disk block*/
 union dx_transfer {
-    struct s_dirx * dhdata;
-    unsigned char * buffer;
+    struct s_dirx       * dhdata;
+    unsigned char       * buffer;
+};
+
+/**Union used to map file header structure onto raw disk block*/
+union fh_transfer {
+    struct s_fileh      * fhdata;
+    unsigned char       * buffer;
+};
+
+/**Union used to map file extension structure onto raw disk blocks*/
+union fx_transfer {
+    struct s_filex      * fxdata;
+    unsigned char       * buffer;
 };
 					
 // Function prototypes
@@ -252,12 +312,15 @@ int addpart(long newpart);                                      //Add newly crea
 long getblock();                                                //Get an empty block from empty chain, or 0 if none available
 void eb_unlink(long blocknr);                                   //Remove (blocknr) from empty chain
 void ec_modfirst(long blocknr);                                 //Register blocknr as first eb in empty chain
+long getPart(int partNo);                                       //Get block address for partition partNo.
 
 //Global variables for jfc
 unsigned char jfcstatus;                                        //Global variable to pass error codes
 
-//jfc status and error codes
-#define E_JFC_OK            0;                                  //0 = OK
-#define E_JFC_PARTMAPFULL   100;                                //Partition map full, no more new partitions
-#define E_JFC_NOBLOCKFORDIR 101;                                //Dir creation failed - no free disk block
+//jfc status and error codes [1..099] range - 0 is OK no error
+#define E_JFC_OK            0                                   //0 = OK
+#define E_JFC_PARTMAPFULL   010                                 //Partition map full, no more new partitions
+#define E_JFC_NOBLOCKFORDIR 011                                 //Dir creation failed - no free disk block
+#define E_PART_NONEX        020                                 //Selected partition does not exist
+#define E_PART_UNREAD       021                                 //Partition map was unreadable
 #endif //_H_JFSH

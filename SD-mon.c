@@ -1,25 +1,24 @@
 //
-// SD-mon, disk monitor for the TOM6309SBC SD disk
+//! SD-mon, disk monitor for the TOM6309SBC SD disk
 //
 
 // Uncomment this to compile debug code...
-
 //#define DEBUG
 
-#include <cmoc.h>
-#include <6309sbc.h>
-#include "stdbool.h"
-#include "TOM6309SDcard.h"
-//#include "../../Bootstrap/JFS/jfs.h"
+#include <cmoc.h>                               //CMOC "stdlib"
+#include <6309sbc.h>                            //CMOC I/O functionality
+#include "stdbool.h"                            //Defines booleans
+#include "TOM6309SDcard.h"                      //Low level interface to SD card hardware
 #include "jfs.h"                                //Changed for use under GIT
-#include "SD-CLI.h"
+#include "SD-CLI.h"                             //Command line interpreter 
+#include "RTC7301.h"                            //Epson RTC-7301 real time clock interface
 
 #define INITTRIES 999
 //#define ESC 27              //ASCII code for ESC char
 
 //Function Proto's for SD-Mon.c
 unsigned char upcase(unsigned char ulc);
-long GetBlockNr();
+char * GetBlockNr();
 void PrepCS(unsigned char CmdStructure[],unsigned char Cmd, long BlockNr);
 int readDisplayBlocks(int argc, char argv[10][30]);
 void BlockDisplay(long BlockNr);
@@ -28,9 +27,13 @@ void fill_buffer(unsigned char value);
 //global variables////////////////////////////////////////////////////////////////////////
 static unsigned char BlockBuffer[512];
 unsigned char *pBootBlock = 0;
+
+//Global variables for date and time
+//unsigned char coded as BCD --> printable with %02x format.
+unsigned char gd_cent, gd_year, gd_month, gd_date, gd_wday;
+unsigned char gt_hrs, gt_min, gt_sec;
 //end global variables////////////////////////////////////////////////////////////////////
 
-long GetBlockNr();
 void PrepCS(unsigned char CmdStructure[],unsigned char Cmd, long BlockNr);
 
 int main() {
@@ -47,6 +50,9 @@ int SizeMB;
 struct csdregister CSData;
 unsigned long CSTotalMBytes;
 unsigned long StartBlock;
+int argc;
+char argv[CLI_MAX_ARGS][CLI_ARGLEN];
+char *ret;
 
 	printf ("\rSD-mon for TOM6309 SD card interface\n");
 		
@@ -83,7 +89,12 @@ unsigned long StartBlock;
 			} //if (SDStat==SDRDY)
 			break;
 		case 'C':
-		    SD_CLI(SDMonCmds, ">");
+		    if ((SDStat=cliInit())==SDRDY){                         //If all is well, initialize command line interpreter                
+		        SD_CLI(SDMonCmds, ">");                          //Startup the CLI for argv[0]
+		    } else {
+                printf("\nCLI initialization failed:");             //Print failure message
+                eMessage(jfcstatus);                                //Print error detail
+            }
 		    break;
 		case 'F':
 			printf("\nFormat SD");
@@ -91,7 +102,7 @@ unsigned long StartBlock;
 			Command=upcase(waitkey());
 			printf("%c",Command);
 			if (Command=='Y') {
-			    SDCardTotalBlocks=JDOS_erase(CSData.Csize+1);     //SDCardTotalBlocks is a global variable, this value is available elsewhere.
+			    SDCardTotalBlocks=JDOS_erase(CSData.Csize+1);       //SDCardTotalBlocks is a global variable, this value is available elsewhere.
 				printf("\n\aTotal # blocks intialized: %ld",SDCardTotalBlocks);
 				break;
 			} else {
@@ -118,8 +129,13 @@ unsigned long StartBlock;
 			} //if (CardInfo.status...
 			break; //case 'I'...
 		case 'R':
-			BlockNr=GetBlockNr();
-			readDisplayBlocks(BlockNr,0);
+			strcpy(argv[1],GetBlockNr());                           //Issue prompt and input a decimal number
+printf("\n%s Selected block nr %s", __func__, argv[1]);
+            argc=3;                                                 //Fill argv with block nr
+            strcpy(argv[0],"");
+            strcpy(argv[2],"0");                                    //argv[2]=0 --> only the firs block is output
+    printargs(argc,argv);
+			readDisplayBlocks(argc, argv);                          //Read and display the block, output is hex!
 			break;
 		case 'S':
 			printf("\n\nCard info:");
@@ -177,11 +193,11 @@ unsigned long StartBlock;
 			
 			break;
 		case 'W':
-			BlockNr=GetBlockNr();
+			BlockNr=strtol(GetBlockNr(), &ret, 16);
 			if (BlockNr!=-1){
-				printf("\nWhat value to fill the block? (dec) ");
+				printf("\nWhat value to fill the block? (hex) ");
 				if (getline(scratch,3)>0){
-					Value=(unsigned char)(strtol(scratch,NULL,10))&255;
+					Value=(unsigned char)(strtol(scratch,NULL,16))&255;
 				} else {
 					Value=0x55;
 				} //if getline(...
@@ -220,32 +236,44 @@ unsigned char upcase(unsigned char ulc)
 	return(ulc);
 }
 
-long GetBlockNr()
+/**
+    @brief GetBlockNr() prompts for input of a block number (hex) long
+*/
+char * GetBlockNr()
 {
 char cmdline[11];
 long BlockNr;
+char *ptr;
 
 	printf("\nEnter block #");
 	if (getline(cmdline, 10)!=0)
 	{
-		BlockNr=strtol(cmdline,NULL,10);
-		return (BlockNr); //returns true
+		BlockNr=strtol(cmdline,&ptr,16);                                        //strtol does type checking
+		sprintf(cmdline, "%lx", BlockNr);                                       //Write tested figure back to string
+printf("\n%s input string: <%s>", __func__, cmdline);
+		return (cmdline); //returns true
 	} else{
-		return (-1); //returns false - nothing input
+printf("\n%s Nothing entered...", __func__);
+        strcpy(cmdline,"");
+		return (cmdline);                                                       //returns empty string - nothing input
+		
 	}
 
 }
 
+/**
+	The CS_ReadBlock and CS_WriteBlock get a Command Sructure with just 
+	the block number in byte 0..3, the routines compile the correct command structure from that
+	PrepCS just translates the long pointer into 4 bytes
+*/
 void PrepCS(unsigned char CmdStructure[],unsigned char Cmd, long BlockNr)
 {
-	//The CS_ReadBlock and CS_WriteBlock get a Command Sructure with just 
-	//the block number in byte 0..3, the routines compile the correct command structure from that
 	CmdStructure[0] = (unsigned char)(BlockNr/16777216)%255;	//1st byte of block #
-	CmdStructure[1] = (unsigned char)(BlockNr/65536)%255;	//2nd byte of block #
-	CmdStructure[2] = (unsigned char)(BlockNr/256)%255;	//3rd byte of block #
-	CmdStructure[3] = (unsigned char)BlockNr%255;		//last byte of block #
-	CmdStructure[4] = 0; //CRC but not checked...
-	CmdStructure[5] = 0; //CRC but not checked...
+	CmdStructure[1] = (unsigned char)(BlockNr/65536)%255;	    //2nd byte of block #
+	CmdStructure[2] = (unsigned char)(BlockNr/256)%255;	        //3rd byte of block #
+	CmdStructure[3] = (unsigned char) BlockNr%255;		        //last byte of block #
+	CmdStructure[4] = 0;                                        //CRC but not checked...
+	CmdStructure[5] = 0;                                        //CRC but not checked...
 #ifdef DEBUG
 	printf("\nCMDBuf assembled : %02x %02x %02x %02x %02x %02x",CmdStructure[0],CmdStructure[1],CmdStructure[2],CmdStructure[3],CmdStructure[4],CmdStructure[5]);
 #endif
@@ -255,18 +283,19 @@ void PrepCS(unsigned char CmdStructure[],unsigned char Cmd, long BlockNr)
     readDisplayBlocks
     Will read block firstblock throug lastblock and display the contents in hex format
     If lastblock == 0, only firstblock will be displayed.
-*/
-    
+*/  
 int readDisplayBlocks(int argc, char argv[10][30])
 {
 unsigned char CmdStructure[6];
 long blockNr,firstblock,lastblock;
 int SDStat;
 int CLIStat;
+char *ret;
 
-    firstblock=(long)atol(argv[1]);                                     //Interpret argv[1] as first block
-    lastblock=(long)atol(argv[2]);                                      //Interpret argv[2] as last block
-    for (blockNr=firstblock; blockNr<=lastblock; blockNr++) {           //Loop through, if lastblock==0 then only 1 block is displayed
+    firstblock=(long)strtol(argv[1], &ret, 16);                         //Interpret argv[1] as first block
+    lastblock=(long)strtol(argv[2], &ret, 16);                          //Interpret argv[2] as last block
+    if (lastblock==0) lastblock=firstblock;                             //When only 1 argument was given copy arg1 to arg2 - only display the one block
+    for (blockNr=firstblock; blockNr<=lastblock; blockNr++) {           //Loop through the blocks
         PrepCS(CmdStructure,SDCMDReadBlock,blockNr);                    //Prepare the command structure
         SDStat=SDReadBlock(CmdStructure,BlockBuffer);                   //Call low-level read routine, passes BlockBuffer to ASM routine
         if (SDStat==SDRDY){                                             //Check the return code
@@ -336,5 +365,6 @@ INISTK	IMPORT
 #include "TOM6309SDcard.c"
 #include "jfs.c"
 #include "SD-CLI.c"
+#include "RTC7301.c"
 
 //#include <../TOM6309.c>

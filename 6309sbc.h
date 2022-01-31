@@ -1,10 +1,13 @@
-/*  TOM6309.h - Utility functions for interface with with Tom DeMenses 6309 SBC
-
-	By Jacob Beeksma <jacob@beeksma.nl>
+/*!
+    @file 6309sbc.h
+    @brief Utility functions for interfacing with with Tom DeMenses 6309 SBC keyboard and display
+    @author Jacob Beeksma <jacob@beeksma.nl>
+    
 	This file is in the public domain.
-*/
-/*
-	CMOC I/O extensions prototypes for Tom DeMense's 6306 SBC
+	
+	Works with lib6309sbc.a
+	CMOC I/O extensions prototypes for Tom DeMense's 6309 SBC
+	Refers to console I/O functions from Tom's monitor program
 	ROM version 1.41
 	This file goes into /usr/local/share/cmoc/include
 	There is also a source file TOM6309.h with source code that goes into /usr/local/share/cmoc
@@ -17,8 +20,8 @@
 //
 #include <stdbool.h>
 
-//console character output routine used by printf() etc.
-//
+///console character output routine used by printf() etc.
+///
 void Outch();
 
 // Check if a key is pressed on the console.
@@ -41,9 +44,9 @@ int getline(char * buffer, char maxlength);
 // These values do not apply on the Dragon, whose keyboard grid is different.
 //
 
-#define	CR	0x0D
-#define	BS	0x08	
-#define	ESC	0x1B
+#define	CR	    0x0D
+#define	BS	    0x08	
+#define	ESC	    0x1B
 #define	BELL	0x07
 
 //memory for old putch routine address
